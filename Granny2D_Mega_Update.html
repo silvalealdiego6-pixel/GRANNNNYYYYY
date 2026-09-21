@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Granny 2D - IA Inteligente + Texturas + Banheiro Novo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.55.2/phaser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <style>
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; overflow: hidden; }
+        #ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; width: 90%; max-width: 340px; font-size: 13px; }
+        input, button, select { padding: 10px; margin: 4px 0; font-size: 13px; width: 100%; box-sizing: border-box; border-radius: 4px; border: none; font-weight: bold; }
+        .btn-blue { background: #0088ff; color: white; }
+        .btn-green { background: #00aa55; color: white; }
+        .btn-red { background: #ff3333; color: white; }
+        #controls { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; gap: 8px; }
+        .btn { width: 50px; height: 50px; background: rgba(255,255,255,0.25); border: 2px solid #fff; color: white; font-size: 20px; font-weight: bold; border-radius: 50%; display: flex; align-items: center; justify-content: center; user-select: none; }
+        #inv { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 6px 10px; border-radius: 5px; font-size: 11px; text-align: left; line-height: 1.4; max-width: 180px; }
+        #btn-pause { position: absolute; top: 10px; right: 10px; z-index: 10; background: rgba(255,255,255,0.3); border: 2px solid white; color: white; font-size: 16px; font-weight: bold; width: 35px; height: 35px; border-radius: 5px; display: flex; align-items: center; justify-content: center; }
+        #btn-shoot { position: absolute; bottom: 80px; right: 20px; z-index: 10; background: #ff3333; border: 2px solid white; color: white; font-weight: bold; padding: 10px 15px; border-radius: 8px; display: none; }
+        #btn-use { position: absolute; bottom: 140px; right: 20px; z-index: 10; background: #aa44ff; border: 2px solid white; color: white; font-weight: bold; padding: 8px 12px; border-radius: 8px; display: none; font-size: 12px; }
+        #btn-place { position: absolute; bottom: 190px; right: 20px; z-index: 10; background: #ffaa00; border: 2px solid white; color: white; font-weight: bold; padding: 8px 12px; border-radius: 8px; display: none; font-size: 12px; }
+        #pause-menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; }
+        #pause-menu div { width: 80%; max-width: 280px; }
+        #analog-zone { position: absolute; bottom: 20px; left: 20px; width: 120px; height: 120px; z-index: 10; display: none; }
+        #analog-base { width: 120px; height: 120px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; position: relative; }
+        #analog-stick { width: 50px; height: 50px; background: rgba(255,255,255,0.5); border: 2px solid #fff; border-radius: 50%; position: absolute; top: 35px; left: 35px; }
+        #cutscene {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #33ff33; font-family: 'Courier New', monospace;
+            font-size: 16px; padding: 30px; box-sizing: border-box;
+            z-index: 30; display: none; text-align: left; line-height: 1.6;
+            white-space: pre-wrap;
+        }
+        #cursor { display: inline-block; width: 10px; height: 18px; background: #33ff33; animation: blink 0.8s infinite; vertical-align: middle; }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div id="setup">
+        <p style="margin:4px 0; font-weight:bold;">Seu Nick:</p>
+        <input type="text" id="nick-input" placeholder="Ex: Travesso" value="Travesso" maxlength="12">
+        
+        <p style="margin:8px 0 4px 0; font-weight:bold;">Cor da bolinha:</p>
+        <select id="color-select" onchange="updateBallPreview()">
+            <option value="0xff0000">Vermelho</option>
+            <option value="0x00ff00">Verde</option>
+            <option value="0x0088ff" selected>Azul</option>
+            <option value="0xffff00">Amarelo</option>
+            <option value="0xff00ff">Rosa</option>
+            <option value="0x00ffff">Ciano</option>
+            <option value="0xff8800">Laranja</option>
+            <option value="0xffffff">Branco</option>
+        </select>
+        <p style="margin:8px 0 4px 0; font-weight:bold;">Desenhe na sua bola:</p>
+        <canvas id="ball-canvas" width="80" height="80" style="background:#222; border:2px solid #555; border-radius:50%; cursor:crosshair;"></canvas>
+        <br>
+        <button type="button" onclick="clearBall()" style="width:auto;padding:6px 12px;margin:4px;">Limpar</button>
+        <input type="color" id="paint-color" value="#ffffff" style="width:40px;height:30px;vertical-align:middle;">
+
+        <p style="margin:10px 0 4px 0; font-weight:bold;">Código da Sala:</p>
+        <input type="text" id="room-code-input" placeholder="Ex: GRANNYX" value="GRANNYX">
+        
+        <button class="btn-green" onclick="createCustomRoom()">1. Criar Sala</button>
+        <button class="btn-blue" onclick="joinCustomRoom()">2. Entrar na Sala</button>
+        <hr style="border-color:#444; margin: 10px 0;">
+        <button class="btn-blue" onclick="startAloneGame()">🎮 Jogar Solo</button>
+    </div>
+</div>
+
+<div id="cutscene">
+    <div id="cutscene-text"></div><span id="cursor"></span>
+</div>
+
+<div id="inv" style="display:none;">
+    Chaves: <span id="keys-list">Nenhuma</span><br>
+    Peças Carro: <span id="car-parts">0/21</span><br>
+    Arma: <span id="gun-status">Não</span><br>
+    Itens: <span id="items-list">Nenhum</span>
+</div>
+
+<div id="btn-pause" style="display:none;" onclick="togglePause()">⏸</div>
+<button id="btn-shoot" onclick="shootGun()">🎯 ATIRAR</button>
+<button id="btn-use" onclick="useVisionPro()">👁 VISION</button>
+<button id="btn-place" onclick="placeClock()">⏰ RELÓGIO</button>
+
+<div id="pause-menu">
+    <div>
+        <h2>JOGO PAUSADO</h2>
+        <button onclick="togglePause()" class="btn-blue">Continuar</button>
+        <br><br>
+        <p style="margin:8px 0 4px;">Controle Mobile:</p>
+        <button onclick="setControlMode('dpad')" class="btn-blue" id="btn-dpad">Setas (D-Pad)</button>
+        <button onclick="setControlMode('analog')" class="btn-green" id="btn-analog">Analógico</button>
+        <br><br>
+        <button onclick="exitToMainMenu()" class="btn-red">Sair para o Menu</button>
+    </div>
+</div>
+
+<div id="controls" style="display:none;">
+    <div class="btn" id="btn-left">←</div>
+    <div class="btn" id="btn-up">↑</div>
+    <div class="btn" id="btn-down">↓</div>
+    <div class="btn" id="btn-right">→</div>
+</div>
+
+<div id="analog-zone">
+    <div id="analog-base">
+        <div id="analog-stick"></div>
+    </div>
+</div>
+
+<script>
+let myPlayerId = "P_" + Math.floor(1000 + Math.random() * 9000);
+let currentRoomId = null;
+let myNick = "Travesso";
+let myColor = 0x0088ff;
+let players = {};
+let aiGranny = null;
+let game, scene;
+let touchInput = { x: 0, y: 0 };
+let isPaused = false;
+let mqttClient = null;
+let cursors, wasd;
+let ballDrawing = null; // dataURL do desenho da bola
+
+// Color Ball editor
+function initBallCanvas() {
+    const canvas = document.getElementById('ball-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0088ff';
+    ctx.beginPath(); ctx.arc(40,40,38,0,Math.PI*2); ctx.fill();
+    let drawing = false;
+    canvas.onmousedown = canvas.ontouchstart = (e) => { drawing = true; paint(e); };
+    canvas.onmouseup = canvas.ontouchend = () => { drawing = false; saveBall(); };
+    canvas.onmousemove = canvas.ontouchmove = (e) => { if(drawing) paint(e); };
+    function paint(e) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+        ctx.fillStyle = document.getElementById('paint-color').value;
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.fill();
+    }
+    function saveBall() { ballDrawing = canvas.toDataURL(); }
+}
+function clearBall() {
+    const canvas = document.getElementById('ball-canvas');
+    const ctx = canvas.getContext('2d');
+    const col = document.getElementById('color-select').value;
+    ctx.fillStyle = '#' + parseInt(col).toString(16).padStart(6,'0');
+    ctx.beginPath(); ctx.arc(40,40,38,0,Math.PI*2); ctx.fill();
+    ballDrawing = null;
+}
+function updateBallPreview() {
+    clearBall();
+}
+window.addEventListener('load', initBallCanvas);
+
+let gameKeys = { 
+    red: false, yellow: false, blue: false, green: false, 
+    purple: false, orange: false, pink: false, cyan: false, white: false
+};
+
+let carParts = {
+    engine: false, gas: false, tire: false, battery: false, sparkPlug: false, carKey: false,
+    radiator: false, alternator: false, oil: false, mirror: false, seat: false,
+    exhaust: false, headlight: false, horn: false, radio: false, belt: false,
+    filter: false, pump: false, cable: false, fuse: false, wheel: false
+};
+
+let hasShotgun = false;
+let shotgunAmmo = 1;
+let isGrannyStunned = false;
+
+// Novos itens
+let hasClock = false;
+let hasVisionPro = false;
+let clockPlaced = false;
+let clockPos = null;
+let clockTimer = 0;
+let clockBeeping = false;
+let visionActive = false;
+let visionTimer = 0;
+let controlMode = 'dpad'; // 'dpad' ou 'analog'
+let analogActive = false;
+
+let grannyState = 'patrol';
+let patrolPoints = [
+    {x: 300, y: 300}, {x: 700, y: 400}, {x: 1200, y: 600},
+    {x: 1700, y: 580}, {x: 900, y: 1100}, {x: 400, y: 1400},
+    {x: 1300, y: 1400}, {x: 600, y: 700}, {x: 1800, y: 950}
+];
+let currentPatrolIndex = 0;
+let grannyStuckTimer = 0;
+let lastGrannyPos = {x: 0, y: 0};
+let grannyAvoidDir = 1;
+let grannyTargetOverride = null; // quando relógio está ativo
+let playerNames = {}; // id -> nick no multiplayer
+
+let redKeyObj, yellowKeyObj, blueKeyObj, greenKeyObj, purpleKeyObj, orangeKeyObj, pinkKeyObj, cyanKeyObj, whiteKeyObj;
+let redDoorObj, yellowDoorObj, blueDoorObj, greenDoorObj, purpleDoorObj, orangeDoorObj, pinkDoorObj, cyanDoorObj, whiteDoorObj;
+let engineObj, gasObj, tireObj, batteryObj, sparkPlugObj, carKeyObj, carObj, shotgunObj;
+let radiatorObj, alternatorObj, oilObj, mirrorObj, seatObj, exhaustObj, headlightObj, hornObj, radioObj, beltObj;
+let filterObj, pumpObj, cableObj, fuseObj;
+let stairsToBasement, stairsToGarage;
+
+// Modelo 2D do banheiro (seu modelo)
+const banheiroMap2d = [
+    {"type":"rect","x":0,"y":0,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-0.9,"y":38.9,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-2.2,"y":72,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-3.1,"y":112.4,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-309.5,"y":26.8,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-310,"y":58.9,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-307.8,"y":98.4,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-305.5,"y":132.4,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":5.3,"y":-41.7,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-46.1,"y":-36.6,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-97.4,"y":-33.4,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-149.2,"y":-30.5,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-209.9,"y":-29.6,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-256.5,"y":-28.8,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-303.6,"y":-21.5,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-303,"y":-4.1,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-44.6,"y":131.9,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-91.3,"y":134.5,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-245.7,"y":134.9,"w":60,"h":40,"color":"#575757"},
+    {"type":"rect","x":-183.9,"y":136,"w":60,"h":40,"color":"#ffffff","label":"Porta"},
+    {"type":"rect","x":-140.1,"y":134.8,"w":60,"h":40,"color":"#ffffff"}
+];
+
+function getPlayerSettings() {
+    myNick = document.getElementById('nick-input').value.trim() || "Travesso";
+    myColor = parseInt(document.getElementById('color-select').value);
+    // Salva o desenho da bola se tiver
+    const canvas = document.getElementById('ball-canvas');
+    if (canvas) {
+        try { ballDrawing = canvas.toDataURL(); } catch(e){}
+    }
+}
+
+function createCustomRoom() {
+    getPlayerSettings();
+    let input = document.getElementById('room-code-input').value.trim();
+    if (!input) return alert("Digite um código para a sala!");
+    currentRoomId = input.toUpperCase();
+    startCutscene();
+}
+
+function joinCustomRoom() {
+    getPlayerSettings();
+    let input = document.getElementById('room-code-input').value.trim();
+    if (!input) return alert("Digite o código da sala!");
+    currentRoomId = input.toUpperCase();
+    startCutscene();
+}
+
+function startAloneGame() { 
+    getPlayerSettings();
+    startCutscene();
+}
+
+function startCutscene() {
+    document.getElementById('ui').style.display = 'none';
+    document.getElementById('cutscene').style.display = 'block';
+    
+    const text = `ola prazer sou ${myNick}
+
+eu sempre fui bem travesso
+so que minha vo me deixou de castigo
+
+e como quero brincar
+vou roubar o carro
+e ganhar 1 milhao de dolares...
+
+preparando fuga...`;
+
+    const el = document.getElementById('cutscene-text');
+    el.innerHTML = '';
+    let i = 0;
+
+    function typeWriter() {
+        if (i < text.length) {
+            el.innerHTML += text.charAt(i);
+            i++;
+            setTimeout(typeWriter, 35);
+        } else {
+            setTimeout(() => {
+                document.getElementById('cutscene').style.display = 'none';
+                showGameUI();
+                startGame();
+                if (currentRoomId) initMQTT();
+            }, 1800);
+        }
+    }
+    typeWriter();
+}
+
+function initMQTT() {
+    mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+    mqttClient.on('connect', () => {
+        mqttClient.subscribe(`granny2d/rooms/${currentRoomId}`);
+    });
+    mqttClient.on('message', (topic, message) => {
+        try {
+            let data = JSON.parse(message.toString());
+            if (data.id === myPlayerId) return;
+            if (data.type === 'move') {
+                if (!scene) return;
+                if (!players[data.id]) createOtherPlayer(data.id, data.color, data.nick);
+                if (players[data.id]) {
+                    players[data.id].setPosition(data.x, data.y);
+                    if (data.nick && players[data.id].nameText) {
+                        players[data.id].nameText.setPosition(data.x, data.y - 20);
+                        players[data.id].nameText.setText(data.nick);
+                    }
+                }
+            } else if (data.type === 'action') {
+                handleGameEvents(data.action, data.key);
+            }
+        } catch(e) {}
+    });
+}
+
+function sendNetPosition() {
+    if (mqttClient && mqttClient.connected && players[myPlayerId]) {
+        let p = players[myPlayerId];
+        mqttClient.publish(`granny2d/rooms/${currentRoomId}`, JSON.stringify({
+            type: 'move', id: myPlayerId, color: myColor, nick: myNick,
+            x: Math.round(p.x), y: Math.round(p.y)
+        }));
+    }
+}
+
+function sendNetAction(action, key = null) {
+    if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(`granny2d/rooms/${currentRoomId}`, JSON.stringify({
+            type: 'action', action: action, key: key
+        }));
+    }
+}
+
+function handleGameEvents(action, keyName = null) {
+    if (action === 'collect_key') {
+        gameKeys[keyName] = true;
+        if (keyName === 'red' && redKeyObj) { redKeyObj.destroy(); redKeyObj = null; }
+        if (keyName === 'yellow' && yellowKeyObj) { yellowKeyObj.destroy(); yellowKeyObj = null; }
+        if (keyName === 'blue' && blueKeyObj) { blueKeyObj.destroy(); blueKeyObj = null; }
+        if (keyName === 'green' && greenKeyObj) { greenKeyObj.destroy(); greenKeyObj = null; }
+        if (keyName === 'purple' && purpleKeyObj) { purpleKeyObj.destroy(); purpleKeyObj = null; }
+        if (keyName === 'orange' && orangeKeyObj) { orangeKeyObj.destroy(); orangeKeyObj = null; }
+        if (keyName === 'pink' && pinkKeyObj) { pinkKeyObj.destroy(); pinkKeyObj = null; }
+        if (keyName === 'cyan' && cyanKeyObj) { cyanKeyObj.destroy(); cyanKeyObj = null; }
+        if (keyName === 'white' && whiteKeyObj) { whiteKeyObj.destroy(); whiteKeyObj = null; }
+    }
+    if (action === 'open_door') {
+        if (keyName === 'red' && redDoorObj) { redDoorObj.destroy(); redDoorObj = null; }
+        if (keyName === 'yellow' && yellowDoorObj) { yellowDoorObj.destroy(); yellowDoorObj = null; }
+        if (keyName === 'blue' && blueDoorObj) { blueDoorObj.destroy(); blueDoorObj = null; }
+        if (keyName === 'green' && greenDoorObj) { greenDoorObj.destroy(); greenDoorObj = null; }
+        if (keyName === 'purple' && purpleDoorObj) { purpleDoorObj.destroy(); purpleDoorObj = null; }
+        if (keyName === 'orange' && orangeDoorObj) { orangeDoorObj.destroy(); orangeDoorObj = null; }
+        if (keyName === 'pink' && pinkDoorObj) { pinkDoorObj.destroy(); pinkDoorObj = null; }
+        if (keyName === 'cyan' && cyanDoorObj) { cyanDoorObj.destroy(); cyanDoorObj = null; }
+        if (keyName === 'white' && whiteDoorObj) { whiteDoorObj.destroy(); whiteDoorObj = null; }
+    }
+    if (action === 'collect_part') {
+        if (keyName && !carParts[keyName]) {
+            carParts[keyName] = true;
+            // Tenta destruir o objeto local se ainda existir
+            const partMap = {
+                engine: 'engineObj', gas: 'gasObj', tire: 'tireObj', battery: 'batteryObj',
+                sparkPlug: 'sparkPlugObj', carKey: 'carKeyObj', radiator: 'radiatorObj',
+                alternator: 'alternatorObj', oil: 'oilObj', mirror: 'mirrorObj', seat: 'seatObj',
+                exhaust: 'exhaustObj', headlight: 'headlightObj', horn: 'hornObj',
+                radio: 'radioObj', belt: 'beltObj', filter: 'filterObj', pump: 'pumpObj',
+                cable: 'cableObj', fuse: 'fuseObj', wheel: 'wheelObj'
+            };
+            const varName = partMap[keyName];
+            if (varName && window[varName]) {
+                try { window[varName].destroy(); } catch(e){}
+                window[varName] = null;
+            }
+        }
+    }
+    updateHUD();
+}
+
+function showGameUI() {
+    document.getElementById('controls').style.display = 'flex';
+    document.getElementById('inv').style.display = 'block';
+    document.getElementById('btn-pause').style.display = 'flex';
+}
+
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('pause-menu').style.display = isPaused ? 'flex' : 'none';
+    if (scene) isPaused ? scene.physics.pause() : scene.physics.resume();
+}
+
+function exitToMainMenu() { 
+    if (mqttClient) mqttClient.end();
+    location.reload(); 
+}
+
+function startGame() {
+    const config = {
+        type: Phaser.AUTO, width: 360, height: 500,
+        physics: { default: 'arcade', arcade: { debug: false } },
+        scene: { preload: preload, create: create, update: update }
+    };
+    game = new Phaser.Game(config);
+}
+
+function preload() {
+    scene = this;
+    let g = this.add.graphics();
+
+    // Player
+    g.fillStyle(0xffffff); g.fillCircle(10, 10, 10); g.generateTexture('player_base', 20, 20); g.clear();
+    
+    // Granny
+    g.fillStyle(0x8b008b); g.fillRect(4, 10, 16, 18);
+    g.fillStyle(0xffe0bd); g.fillCircle(12, 8, 7);
+    g.fillStyle(0xdcdcdc); g.fillCircle(12, 4, 4);
+    g.fillStyle(0x8b4513); g.fillRect(18, 12, 3, 14); g.fillRect(16, 12, 5, 3);
+    g.generateTexture('granny_sprite', 24, 28); g.clear();
+
+    // Wall
+    g.fillStyle(0x444444); g.fillRect(0, 0, 20, 20); g.generateTexture('wall', 20, 20); g.clear();
+
+    // Keys
+    g.fillStyle(0xff0000); g.fillRect(0, 0, 10, 10); g.generateTexture('red_key', 10, 10); g.clear();
+    g.fillStyle(0xffff00); g.fillRect(0, 0, 10, 10); g.generateTexture('yellow_key', 10, 10); g.clear();
+    g.fillStyle(0x00ffff); g.fillRect(0, 0, 10, 10); g.generateTexture('blue_key', 10, 10); g.clear();
+    g.fillStyle(0x00ff00); g.fillRect(0, 0, 10, 10); g.generateTexture('green_key', 10, 10); g.clear();
+    g.fillStyle(0xaa00ff); g.fillRect(0, 0, 10, 10); g.generateTexture('purple_key', 10, 10); g.clear();
+    g.fillStyle(0xff8800); g.fillRect(0, 0, 10, 10); g.generateTexture('orange_key', 10, 10); g.clear();
+    g.fillStyle(0xff66aa); g.fillRect(0, 0, 10, 10); g.generateTexture('pink_key', 10, 10); g.clear();
+    g.fillStyle(0x00ccff); g.fillRect(0, 0, 10, 10); g.generateTexture('cyan_key', 10, 10); g.clear();
+    g.fillStyle(0xffffff); g.fillRect(0, 0, 10, 10); g.generateTexture('white_key', 10, 10); g.clear();
+
+    // Doors
+    g.fillStyle(0xff2222); g.fillRect(0, 0, 60, 15); g.generateTexture('red_door', 60, 15); g.clear();
+    g.fillStyle(0xffff22); g.fillRect(0, 0, 60, 15); g.generateTexture('yellow_door', 60, 15); g.clear();
+    g.fillStyle(0x00ffff); g.fillRect(0, 0, 60, 15); g.generateTexture('blue_door', 60, 15); g.clear();
+    g.fillStyle(0x00ff00); g.fillRect(0, 0, 60, 15); g.generateTexture('green_door', 60, 15); g.clear();
+    g.fillStyle(0xaa00ff); g.fillRect(0, 0, 60, 15); g.generateTexture('purple_door', 60, 15); g.clear();
+    g.fillStyle(0xff8800); g.fillRect(0, 0, 60, 15); g.generateTexture('orange_door', 60, 15); g.clear();
+    g.fillStyle(0xff66aa); g.fillRect(0, 0, 60, 15); g.generateTexture('pink_door', 60, 15); g.clear();
+    g.fillStyle(0x00ccff); g.fillRect(0, 0, 60, 15); g.generateTexture('cyan_door', 60, 15); g.clear();
+    g.fillStyle(0xffffff); g.fillRect(0, 0, 60, 15); g.generateTexture('white_door', 60, 15); g.clear();
+
+    // Car parts
+    g.fillStyle(0x228b22); g.fillRect(0, 0, 60, 35); g.generateTexture('car', 60, 35); g.clear();
+    g.fillStyle(0x888888); g.fillRect(0, 0, 12, 12); g.generateTexture('engine', 12, 12); g.clear();
+    g.fillStyle(0xffa500); g.fillRect(0, 0, 10, 12); g.generateTexture('gas', 10, 12); g.clear();
+    g.fillStyle(0x222222); g.fillCircle(8, 8, 8); g.generateTexture('tire', 16, 16); g.clear();
+    g.fillStyle(0x5555ff); g.fillRect(0, 0, 14, 10); g.generateTexture('battery', 14, 10); g.clear();
+    g.fillStyle(0xff00ff); g.fillRect(0, 0, 8, 8); g.generateTexture('spark_plug', 8, 8); g.clear();
+    g.fillStyle(0xffd700); g.fillRect(0, 0, 10, 6); g.generateTexture('car_key', 10, 6); g.clear();
+    g.fillStyle(0x00aaff); g.fillRect(0, 0, 14, 10); g.generateTexture('radiator', 14, 10); g.clear();
+    g.fillStyle(0xcccc00); g.fillRect(0, 0, 12, 12); g.generateTexture('alternator', 12, 12); g.clear();
+    g.fillStyle(0x886600); g.fillRect(0, 0, 10, 14); g.generateTexture('oil', 10, 14); g.clear();
+    g.fillStyle(0xaaaaaa); g.fillRect(0, 0, 12, 8); g.generateTexture('mirror', 12, 8); g.clear();
+    g.fillStyle(0x664422); g.fillRect(0, 0, 16, 12); g.generateTexture('seat', 16, 12); g.clear();
+    g.fillStyle(0x333333); g.fillRect(0, 0, 18, 8); g.generateTexture('exhaust', 18, 8); g.clear();
+    g.fillStyle(0xffffaa); g.fillCircle(6, 6, 6); g.generateTexture('headlight', 12, 12); g.clear();
+    g.fillStyle(0xff4444); g.fillRect(0, 0, 10, 10); g.generateTexture('horn', 10, 10); g.clear();
+    g.fillStyle(0x00ffaa); g.fillRect(0, 0, 14, 10); g.generateTexture('radio', 14, 10); g.clear();
+    g.fillStyle(0x4444aa); g.fillRect(0, 0, 16, 6); g.generateTexture('belt', 16, 6); g.clear();
+    g.fillStyle(0x88aa00); g.fillRect(0, 0, 12, 10); g.generateTexture('filter', 12, 10); g.clear();
+    g.fillStyle(0xaa4400); g.fillRect(0, 0, 10, 12); g.generateTexture('pump', 10, 12); g.clear();
+    g.fillStyle(0x00aaaa); g.fillRect(0, 0, 14, 6); g.generateTexture('cable', 14, 6); g.clear();
+    g.fillStyle(0xffaa00); g.fillRect(0, 0, 8, 10); g.generateTexture('fuse', 8, 10); g.clear();
+    g.fillStyle(0x222222); g.fillCircle(8, 8, 7); g.fillStyle(0x888); g.fillCircle(8, 8, 3); g.generateTexture('wheel', 16, 16); g.clear();
+
+    g.fillStyle(0x111111); g.fillRect(0, 0, 16, 6); g.generateTexture('shotgun', 16, 6); g.clear();
+    g.fillStyle(0xaa6600); g.fillRect(0, 0, 30, 20); g.generateTexture('table', 30, 20); g.clear();
+    g.fillStyle(0x666666); g.fillRect(0, 0, 30, 30); g.generateTexture('stairs', 30, 30); g.clear();
+
+    // Novos itens
+    g.fillStyle(0xffcc00); g.fillCircle(8, 8, 8); g.fillStyle(0x333); g.fillRect(7, 2, 2, 6); g.generateTexture('clock', 16, 16); g.clear();
+    g.fillStyle(0x88aaff); g.fillRect(0, 0, 14, 10); g.fillStyle(0xffffff); g.fillRect(2, 2, 10, 6); g.generateTexture('visionpro', 14, 10); g.clear();
+
+    // ========== TEXTURAS DE FUNDO ==========
+    // Piso madeira (biblioteca / quarto)
+    g.fillStyle(0x5c3a1e);
+    for(let i=0;i<8;i++) g.fillRect(i*5, 0, 4, 40);
+    g.generateTexture('floor_wood', 40, 40); g.clear();
+
+    // Piso banheiro (azulejo)
+    g.fillStyle(0xd0e8f0);
+    g.fillRect(0,0,40,40);
+    g.lineStyle(2, 0xa0c0d0);
+    g.strokeRect(0,0,20,20); g.strokeRect(20,0,20,20);
+    g.strokeRect(0,20,20,20); g.strokeRect(20,20,20,20);
+    g.generateTexture('floor_tile', 40, 40); g.clear();
+
+    // Piso concreto (garagem / oficina)
+    g.fillStyle(0x555555);
+    g.fillRect(0,0,40,40);
+    g.fillStyle(0x666666);
+    g.fillRect(5,5,30,30);
+    g.generateTexture('floor_concrete', 40, 40); g.clear();
+
+    // Piso grama (jardim)
+    g.fillStyle(0x2d5a27);
+    g.fillRect(0,0,40,40);
+    g.fillStyle(0x3a7a32);
+    for(let i=0;i<6;i++) g.fillCircle(Math.random()*40, Math.random()*40, 3);
+    g.generateTexture('floor_grass', 40, 40); g.clear();
+
+    // Piso porão escuro
+    g.fillStyle(0x1a1a1a);
+    g.fillRect(0,0,40,40);
+    g.fillStyle(0x2a2a2a);
+    g.fillRect(10,10,20,20);
+    g.generateTexture('floor_dark', 40, 40); g.clear();
+
+    // Piso sala de estar
+    g.fillStyle(0x4a3728);
+    g.fillRect(0,0,40,40);
+    g.fillStyle(0x5c4635);
+    g.fillRect(0,0,40,8);
+    g.generateTexture('floor_carpet', 40, 40); g.clear();
+}
+
+function create() {
+    let walls = scene.physics.add.staticGroup();
+
+    this.cameras.main.setBounds(0, 0, 2200, 3000);
+    this.physics.world.setBounds(0, 0, 2200, 3000);
+
+    // Bordas
+    for(let x=0; x<2200; x+=20) { walls.create(x, 10, 'wall'); walls.create(x, 2990, 'wall'); }
+    for(let y=0; y<3000; y+=20) { walls.create(10, y, 'wall'); walls.create(2190, y, 'wall'); }
+
+    // ========== FUNDOS COM TEXTURA (COBRE TUDO, SEM PRETO) ==========
+    // Piso base geral (evita qualquer área preta)
+    for(let x=0; x<2200; x+=40) {
+        for(let y=0; y<3000; y+=40) {
+            scene.add.image(x+20, y+20, 'floor_dark').setAlpha(0.4);
+        }
+    }
+    // Sala Inicial
+    for(let x=20; x<300; x+=40) for(let y=20; y<220; y+=40) scene.add.image(x+20, y+20, 'floor_carpet').setAlpha(0.85);
+    // Cozinha
+    for(let x=380; x<720; x+=40) for(let y=20; y<220; y+=40) scene.add.image(x+20, y+20, 'floor_tile').setAlpha(0.8);
+    // Banheiro
+    for(let x=700; x<1020; x+=40) for(let y=20; y<220; y+=40) scene.add.image(x+20, y+20, 'floor_tile').setAlpha(0.85);
+    // Quarto Principal
+    for(let x=20; x<400; x+=40) for(let y=180; y<320; y+=40) scene.add.image(x+20, y+20, 'floor_wood').setAlpha(0.8);
+    // Biblioteca
+    for(let x=980; x<1420; x+=40) for(let y=180; y<420; y+=40) scene.add.image(x+20, y+20, 'floor_wood').setAlpha(0.85);
+    // Sala de Estar
+    for(let x=1380; x<1820; x+=40) for(let y=180; y<420; y+=40) scene.add.image(x+20, y+20, 'floor_carpet').setAlpha(0.8);
+    // Corredor
+    for(let x=880; x<1140; x+=40) for(let y=380; y<520; y+=40) scene.add.image(x+20, y+20, 'floor_concrete').setAlpha(0.7);
+    // Garagem + Oficina
+    for(let x=20; x<1620; x+=40) for(let y=480; y<840; y+=40) scene.add.image(x+20, y+20, 'floor_concrete').setAlpha(0.75);
+    // Jardim
+    for(let x=1580; x<2120; x+=40) for(let y=480; y<720; y+=40) scene.add.image(x+20, y+20, 'floor_grass').setAlpha(0.85);
+    // Quarto Hóspedes
+    for(let x=1580; x<2120; x+=40) for(let y=800; y<1000; y+=40) scene.add.image(x+20, y+20, 'floor_carpet').setAlpha(0.75);
+    // Porão
+    for(let x=20; x<1020; x+=40) for(let y=800; y<1620; y+=40) scene.add.image(x+20, y+20, 'floor_dark').setAlpha(0.8);
+    // Porão Secreto
+    for(let x=980; x<1520; x+=40) for(let y=1180; y<1620; y+=40) scene.add.image(x+20, y+20, 'floor_dark').setAlpha(0.85);
+    // Despensa
+    for(let x=280; x<720; x+=40) for(let y=1580; y<1850; y+=40) scene.add.image(x+20, y+20, 'floor_concrete').setAlpha(0.75);
+
+    // ========== SALA INICIAL ==========
+    for(let y=20; y<180; y+=20) walls.create(200, y, 'wall');
+    for(let x=20; x<140; x+=20) walls.create(x, 200, 'wall');
+    for(let x=200; x<260; x+=20) walls.create(x, 200, 'wall');
+    scene.add.text(30, 30, 'SALA INICIAL', { font: '12px sans-serif', fill: '#fff' });
+
+    redDoorObj = scene.physics.add.staticSprite(170, 200, 'red_door');
+    redKeyObj = scene.physics.add.sprite(50, 60, 'red_key');
+    yellowKeyObj = scene.physics.add.sprite(250, 60, 'yellow_key');
+    purpleKeyObj = scene.physics.add.sprite(100, 140, 'purple_key');
+    orangeKeyObj = scene.physics.add.sprite(280, 100, 'orange_key');
+    whiteKeyObj = scene.physics.add.sprite(180, 80, 'white_key'); // Chave branca pro banheiro
+    // Relógio na Sala Inicial (overlap será configurado depois do player)
+    window.clockObj = scene.physics.add.sprite(60, 150, 'clock');
+
+    // ========== GARAGEM ==========
+    for(let x=20; x<300; x+=20) walls.create(x, 500, 'wall');
+    for(let x=380; x<2200; x+=20) walls.create(x, 500, 'wall');
+    yellowDoorObj = scene.physics.add.staticSprite(340, 500, 'yellow_door');
+
+    scene.add.text(450, 520, 'GARAGEM DO CARRO', { font: '14px sans-serif', fill: '#0f0' });
+    carObj = scene.physics.add.staticSprite(500, 580, 'car');
+    engineObj = scene.physics.add.sprite(200, 700, 'engine');
+    sparkPlugObj = scene.physics.add.sprite(300, 750, 'spark_plug');
+    window.wheelObj = scene.physics.add.sprite(420, 720, 'wheel'); // peça extra
+    stairsToBasement = scene.physics.add.staticSprite(850, 700, 'stairs');
+
+    for(let x=20; x<2200; x+=20) walls.create(x, 820, 'wall');
+
+    // ========== PORÃO ==========
+    scene.add.text(50, 850, 'PORÃO', { font: '14px sans-serif', fill: '#ff8800' });
+    stairsToGarage = scene.physics.add.staticSprite(850, 900, 'stairs');
+    scene.add.image(400, 1000, 'table');
+    gasObj = scene.physics.add.sprite(400, 995, 'gas');
+    shotgunObj = scene.physics.add.sprite(600, 1100, 'shotgun');
+    blueKeyObj = scene.physics.add.sprite(150, 1050, 'blue_key');
+
+    for(let x=20; x<220; x+=20) walls.create(x, 1200, 'wall');
+    for(let x=280; x<500; x+=20) walls.create(x, 1200, 'wall');
+    for(let y=1200; y<1600; y+=20) walls.create(500, y, 'wall');
+    blueDoorObj = scene.physics.add.staticSprite(250, 1200, 'blue_door');
+    scene.add.text(50, 1230, 'SALA AZUL', { font: '12px sans-serif', fill: '#00ffff' });
+
+    tireObj = scene.physics.add.sprite(150, 1400, 'tire');
+    greenKeyObj = scene.physics.add.sprite(350, 1450, 'green_key');
+
+    for(let x=500; x<710; x+=20) walls.create(x, 1200, 'wall');
+    for(let x=770; x<1000; x+=20) walls.create(x, 1200, 'wall');
+    greenDoorObj = scene.physics.add.staticSprite(740, 1200, 'green_door');
+    scene.add.text(550, 1230, 'SALA VERDE', { font: '12px sans-serif', fill: '#00ff00' });
+
+    batteryObj = scene.physics.add.sprite(800, 1400, 'battery');
+    carKeyObj = scene.physics.add.sprite(900, 1500, 'car_key');
+
+    // ========== COZINHA ==========
+    for(let x=400; x<520; x+=20) walls.create(x, 200, 'wall');
+    for(let x=580; x<700; x+=20) walls.create(x, 200, 'wall');
+    for(let y=20; y<200; y+=20) walls.create(400, y, 'wall');
+    for(let y=20; y<200; y+=20) walls.create(700, y, 'wall');
+    scene.add.text(450, 30, 'COZINHA', { font: '13px sans-serif', fill: '#ffaa00' });
+    oilObj = scene.physics.add.sprite(550, 100, 'oil');
+    purpleDoorObj = scene.physics.add.staticSprite(550, 200, 'purple_door');
+
+    // ========== BANHEIRO (seu modelo escalado pro tamanho das outras salas) ==========
+    // Escala e posição para ficar no tamanho das outras salas (~300x180)
+    const offsetX = 720;
+    const offsetY = 20;
+    const scale = 0.7;
+
+    // Fundo do banheiro com textura de azulejo
+    for(let x=700; x<1000; x+=40) for(let y=20; y<200; y+=40) {
+        scene.add.image(x+20, y+20, 'floor_tile').setAlpha(0.7);
+    }
+
+    // Desenha o modelo do banheiro, MAS ignora as partes brancas/label "Porta"
+    // (elas eram só exemplo de onde fica a porta)
+    banheiroMap2d.forEach(r => {
+        // Pula os retângulos brancos / com label "Porta" — esses não são parede
+        if (r.color === "#ffffff" || r.label === "Porta") return;
+
+        const wx = offsetX + (r.x * scale);
+        const wy = offsetY + (r.y * scale);
+        const ww = Math.max(r.w * scale, 18);
+        const wh = Math.max(r.h * scale, 18);
+
+        const color = Phaser.Display.Color.HexStringToColor(r.color).color;
+        const wallRect = scene.add.rectangle(wx + ww/2, wy + wh/2, ww, wh, color);
+        scene.physics.add.existing(wallRect, true);
+        walls.add(wallRect);
+    });
+
+    // Porta NORMAL do banheiro (abre com chave branca)
+    // Posicionada na entrada do banheiro com vão livre
+    whiteDoorObj = scene.physics.add.staticSprite(780, 200, 'white_door');
+    
+    // Item do carro DENTRO do banheiro
+    mirrorObj = scene.physics.add.sprite(900, 100, 'mirror');
+
+    scene.add.text(820, 30, 'BANHEIRO', { font: '13px sans-serif', fill: '#88ccff' });
+
+    // ========== QUARTO PRINCIPAL ==========
+    for(let x=20; x<170; x+=20) walls.create(x, 300, 'wall');
+    for(let x=230; x<380; x+=20) walls.create(x, 300, 'wall');
+    for(let y=200; y<300; y+=20) walls.create(380, y, 'wall');
+    scene.add.text(50, 230, 'QUARTO PRINCIPAL', { font: '13px sans-serif', fill: '#ff88aa' });
+    seatObj = scene.physics.add.sprite(150, 250, 'seat');
+    orangeDoorObj = scene.physics.add.staticSprite(200, 300, 'orange_door');
+
+    // ========== BIBLIOTECA ==========
+    for(let x=1000; x<1400; x+=20) walls.create(x, 400, 'wall');
+    for(let y=200; y<280; y+=20) walls.create(1000, y, 'wall');
+    for(let y=320; y<400; y+=20) walls.create(1000, y, 'wall');
+    for(let y=200; y<400; y+=20) walls.create(1400, y, 'wall');
+    scene.add.text(1100, 220, 'BIBLIOTECA', { font: '13px sans-serif', fill: '#ccaa66' });
+    radioObj = scene.physics.add.sprite(1200, 300, 'radio');
+    pinkKeyObj = scene.physics.add.sprite(1150, 350, 'pink_key');
+
+    // ========== SALA DE ESTAR ==========
+    for(let x=1400; x<1800; x+=20) walls.create(x, 400, 'wall');
+    for(let y=200; y<400; y+=20) walls.create(1800, y, 'wall');
+    scene.add.text(1500, 220, 'SALA DE ESTAR', { font: '13px sans-serif', fill: '#aaffaa' });
+    hornObj = scene.physics.add.sprite(1600, 300, 'horn');
+    // Vision Pro na Sala de Estar (overlap depois do player)
+    window.visionProObj = scene.physics.add.sprite(1550, 350, 'visionpro');
+
+    // ========== CORREDOR ==========
+    for(let y=400; y<500; y+=20) walls.create(900, y, 'wall');
+    for(let y=400; y<500; y+=20) walls.create(1100, y, 'wall');
+    scene.add.text(950, 430, 'CORREDOR', { font: '12px sans-serif', fill: '#888' });
+    headlightObj = scene.physics.add.sprite(1000, 450, 'headlight');
+
+    // ========== OFICINA ==========
+    for(let x=1100; x<1600; x+=20) walls.create(x, 700, 'wall');
+    // Parede direita da oficina COM VÃO pro jardim (entrada aberta)
+    for(let y=500; y<560; y+=20) walls.create(1600, y, 'wall');
+    for(let y=640; y<700; y+=20) walls.create(1600, y, 'wall');
+    for(let y=500; y<540; y+=20) walls.create(1100, y, 'wall');
+    for(let y=640; y<700; y+=20) walls.create(1100, y, 'wall');
+    scene.add.text(1200, 530, 'OFICINA', { font: '14px sans-serif', fill: '#ffcc00' });
+    alternatorObj = scene.physics.add.sprite(1300, 600, 'alternator');
+    beltObj = scene.physics.add.sprite(1450, 650, 'belt');
+    filterObj = scene.physics.add.sprite(1250, 550, 'filter');
+
+    // ========== JARDIM INTERNO (entrada aberta pela oficina) ==========
+    for(let x=1620; x<2100; x+=20) walls.create(x, 500, 'wall');
+    for(let x=1620; x<2100; x+=20) walls.create(x, 700, 'wall');
+    for(let y=500; y<700; y+=20) walls.create(2100, y, 'wall');
+    // Sem parede em x=1600 no meio → entrada livre
+
+    scene.add.text(1700, 530, 'JARDIM INTERNO', { font: '13px sans-serif', fill: '#66ff66' });
+    scene.add.text(1610, 590, '→', { font: '20px Arial', fill: '#66ff66' });
+    exhaustObj = scene.physics.add.sprite(1750, 600, 'exhaust');
+    pumpObj = scene.physics.add.sprite(1900, 580, 'pump');
+
+    // ========== PORÃO SECRETO ==========
+    for(let x=1000; x<1500; x+=20) walls.create(x, 1600, 'wall');
+    for(let y=1200; y<1600; y+=20) walls.create(1000, y, 'wall');
+    for(let y=1200; y<1600; y+=20) walls.create(1500, y, 'wall');
+    scene.add.text(1100, 1250, 'PORÃO SECRETO', { font: '13px sans-serif', fill: '#ff6666' });
+    radiatorObj = scene.physics.add.sprite(1200, 1400, 'radiator');
+    cyanKeyObj = scene.physics.add.sprite(1350, 1450, 'cyan_key');
+
+    // ========== QUARTO DE HÓSPEDES ==========
+    for(let y=820; y<900; y+=20) walls.create(1600, y, 'wall');
+    for(let y=820; y<900; y+=20) walls.create(2100, y, 'wall');
+    for(let x=1600; x<1720; x+=20) walls.create(x, 900, 'wall');
+    for(let x=1840; x<2100; x+=20) walls.create(x, 900, 'wall');
+    pinkDoorObj = scene.physics.add.staticSprite(1780, 900, 'pink_door');
+    scene.add.text(1680, 850, 'QUARTO HÓSPEDES', { font: '12px sans-serif', fill: '#ff99cc' });
+    cableObj = scene.physics.add.sprite(1800, 950, 'cable');
+
+    // ========== DESPENSA ==========
+    for(let y=1600; y<1700; y+=20) walls.create(300, y, 'wall');
+    for(let y=1600; y<1700; y+=20) walls.create(700, y, 'wall');
+    for(let x=300; x<420; x+=20) walls.create(x, 1700, 'wall');
+    for(let x=540; x<700; x+=20) walls.create(x, 1700, 'wall');
+    cyanDoorObj = scene.physics.add.staticSprite(480, 1700, 'cyan_door');
+    scene.add.text(380, 1650, 'DESPENSA', { font: '13px sans-serif', fill: '#00ccff' });
+    fuseObj = scene.physics.add.sprite(500, 1800, 'fuse');
+
+    // Player
+    if (ballDrawing) {
+        // Usa o desenho da bola como textura
+        const img = new Image();
+        img.src = ballDrawing;
+        // fallback enquanto carrega
+        players[myPlayerId] = scene.physics.add.sprite(80, 80, 'player_base');
+        players[myPlayerId].setTint(myColor);
+        img.onload = () => {
+            scene.textures.addImage('custom_ball', img);
+            if (players[myPlayerId]) {
+                players[myPlayerId].setTexture('custom_ball');
+                players[myPlayerId].setDisplaySize(20, 20);
+                players[myPlayerId].clearTint();
+            }
+        };
+    } else {
+        players[myPlayerId] = scene.physics.add.sprite(80, 80, 'player_base');
+        players[myPlayerId].setTint(myColor);
+    }
+    players[myPlayerId].setCollideWorldBounds(true);
+    scene.physics.add.collider(players[myPlayerId], walls);
+    this.cameras.main.startFollow(players[myPlayerId], true, 0.08, 0.08);
+    // Nome próprio
+    players[myPlayerId].nameText = scene.add.text(80, 60, myNick, {
+        font: '11px Arial', fill: '#00ff88',
+        backgroundColor: 'rgba(0,0,0,0.5)', padding: { x: 4, y: 2 }
+    }).setOrigin(0.5);
+
+    // Agora sim: overlaps dos novos itens (depois do player existir)
+    if (window.clockObj) {
+        scene.physics.add.overlap(players[myPlayerId], window.clockObj, () => {
+            if (!hasClock) {
+                hasClock = true;
+                window.clockObj.destroy();
+                document.getElementById('btn-place').style.display = 'block';
+                updateHUD();
+            }
+        });
+    }
+    if (window.visionProObj) {
+        scene.physics.add.overlap(players[myPlayerId], window.visionProObj, () => {
+            if (!hasVisionPro) {
+                hasVisionPro = true;
+                window.visionProObj.destroy();
+                document.getElementById('btn-use').style.display = 'block';
+                updateHUD();
+            }
+        });
+    }
+
+    // Teclado
+    cursors = this.input.keyboard.createCursorKeys();
+    wasd = this.input.keyboard.addKeys('W,S,A,D');
+    // Garante que o body do player está ativo
+    if (players[myPlayerId] && players[myPlayerId].body) {
+        players[myPlayerId].body.setAllowGravity(false);
+        players[myPlayerId].body.moves = true;
+    }
+
+    aiGranny = scene.physics.add.sprite(650, 650, 'granny_sprite');
+    scene.physics.add.collider(aiGranny, walls);
+
+    // Avó NÃO atravessa portas (colide com todas elas)
+    const allDoors = [redDoorObj, yellowDoorObj, blueDoorObj, greenDoorObj, purpleDoorObj, orangeDoorObj, pinkDoorObj, cyanDoorObj, whiteDoorObj];
+    allDoors.forEach(door => {
+        if (door) scene.physics.add.collider(aiGranny, door);
+    });
+
+    lastGrannyPos = {x: aiGranny.x, y: aiGranny.y};
+
+    setupInteractions();
+    setupMobileControls();
+}
+
+function createOtherPlayer(id, color, nick) {
+    players[id] = scene.physics.add.sprite(80, 80, 'player_base');
+    if (color) players[id].setTint(color);
+    // Nome flutuante
+    const nameText = scene.add.text(80, 60, nick || id, {
+        font: '11px Arial',
+        fill: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: { x: 4, y: 2 }
+    }).setOrigin(0.5);
+    players[id].nameText = nameText;
+}
+
+function setupInteractions() {
+    const keys = [
+        {obj: redKeyObj, name: 'red'}, {obj: yellowKeyObj, name: 'yellow'},
+        {obj: blueKeyObj, name: 'blue'}, {obj: greenKeyObj, name: 'green'},
+        {obj: purpleKeyObj, name: 'purple'}, {obj: orangeKeyObj, name: 'orange'},
+        {obj: pinkKeyObj, name: 'pink'}, {obj: cyanKeyObj, name: 'cyan'},
+        {obj: whiteKeyObj, name: 'white'}
+    ];
+    keys.forEach(k => {
+        if (k.obj) {
+            scene.physics.add.overlap(players[myPlayerId], k.obj, () => {
+                handleGameEvents('collect_key', k.name);
+                sendNetAction('collect_key', k.name);
+            });
+        }
+    });
+
+    const doors = [
+        {obj: redDoorObj, name: 'red'}, {obj: yellowDoorObj, name: 'yellow'},
+        {obj: blueDoorObj, name: 'blue'}, {obj: greenDoorObj, name: 'green'},
+        {obj: purpleDoorObj, name: 'purple'}, {obj: orangeDoorObj, name: 'orange'},
+        {obj: pinkDoorObj, name: 'pink'}, {obj: cyanDoorObj, name: 'cyan'},
+        {obj: whiteDoorObj, name: 'white'}
+    ];
+    doors.forEach(d => {
+        if (d.obj) {
+            scene.physics.add.collider(players[myPlayerId], d.obj, () => {
+                if (gameKeys[d.name]) {
+                    handleGameEvents('open_door', d.name);
+                    sendNetAction('open_door', d.name);
+                }
+            });
+        }
+    });
+
+    const parts = [
+        {obj: engineObj, key: 'engine'}, {obj: gasObj, key: 'gas'}, {obj: tireObj, key: 'tire'},
+        {obj: batteryObj, key: 'battery'}, {obj: sparkPlugObj, key: 'sparkPlug'}, {obj: carKeyObj, key: 'carKey'},
+        {obj: radiatorObj, key: 'radiator'}, {obj: alternatorObj, key: 'alternator'}, {obj: oilObj, key: 'oil'},
+        {obj: mirrorObj, key: 'mirror'}, {obj: seatObj, key: 'seat'}, {obj: exhaustObj, key: 'exhaust'},
+        {obj: headlightObj, key: 'headlight'}, {obj: hornObj, key: 'horn'}, {obj: radioObj, key: 'radio'},
+        {obj: beltObj, key: 'belt'}, {obj: filterObj, key: 'filter'}, {obj: pumpObj, key: 'pump'},
+        {obj: cableObj, key: 'cable'}, {obj: fuseObj, key: 'fuse'},
+        {obj: window.wheelObj, key: 'wheel'}
+    ];
+    parts.forEach(p => {
+        if (p.obj) {
+            scene.physics.add.overlap(players[myPlayerId], p.obj, () => {
+                if (!carParts[p.key]) {
+                    carParts[p.key] = true;
+                    if (p.obj) p.obj.destroy();
+                    updateHUD();
+                    // Sincroniza pra TODOS no multiplayer
+                    sendNetAction('collect_part', p.key);
+                }
+            });
+        }
+    });
+
+    scene.physics.add.collider(players[myPlayerId], carObj, () => {
+        let allParts = Object.values(carParts).every(v => v === true);
+        if (allParts) {
+            alert("SENSACIONAL! VOCÊS ENCONTRARAM TODAS AS 21 PEÇAS E FUGIRAM COM O CARRO!");
+            location.reload();
+        } else {
+            let missing = Object.values(carParts).filter(v => !v).length;
+            alert(`Ainda faltam ${missing} peças!`);
+        }
+    });
+
+    scene.physics.add.overlap(players[myPlayerId], shotgunObj, () => {
+        if (!hasShotgun) {
+            hasShotgun = true;
+            if (shotgunObj) shotgunObj.destroy();
+            document.getElementById('btn-shoot').style.display = 'block';
+            updateHUD();
+        }
+    });
+
+    // Range maior nas escadas
+    scene.physics.add.overlap(players[myPlayerId], stairsToBasement, () => teleportPlayer(850, 950), null, this);
+    scene.physics.add.overlap(players[myPlayerId], stairsToGarage, () => teleportPlayer(850, 650), null, this);
+    // Aumenta o body das escadas pra facilitar
+    if (stairsToBasement && stairsToBasement.body) stairsToBasement.body.setSize(60, 60);
+    if (stairsToGarage && stairsToGarage.body) stairsToGarage.body.setSize(60, 60);
+}
+
+function useVisionPro() {
+    if (!hasVisionPro || visionActive) return;
+    visionActive = true;
+    visionTimer = 600; // 10 segundos (60fps)
+    hasVisionPro = false;
+    document.getElementById('btn-use').style.display = 'none';
+    if (players[myPlayerId]) {
+        players[myPlayerId].setAlpha(0.3);
+        // Temporariamente remove colisão com paredes
+        players[myPlayerId].body.checkCollision.none = true;
+    }
+    updateHUD();
+}
+
+function placeClock() {
+    if (!hasClock || clockPlaced || !players[myPlayerId]) return;
+    hasClock = false;
+    clockPlaced = true;
+    clockBeeping = false;
+    clockTimer = 0;
+    clockPos = { x: players[myPlayerId].x, y: players[myPlayerId].y };
+    document.getElementById('btn-place').style.display = 'none';
+    
+    // Sprite do relógio no chão
+    scene.add.sprite(clockPos.x, clockPos.y, 'clock').setDepth(5);
+    updateHUD();
+}
+
+function setControlMode(mode) {
+    controlMode = mode;
+    if (mode === 'analog') {
+        document.getElementById('controls').style.display = 'none';
+        document.getElementById('analog-zone').style.display = 'block';
+    } else {
+        document.getElementById('controls').style.display = 'flex';
+        document.getElementById('analog-zone').style.display = 'none';
+        touchInput = { x: 0, y: 0 };
+    }
+}
+
+function teleportPlayer(x, y) {
+    scene.cameras.main.fadeOut(300, 0, 0, 0);
+    scene.cameras.main.once('camerafadeoutcomplete', () => {
+        players[myPlayerId].setPosition(x, y);
+        scene.cameras.main.fadeIn(300, 0, 0, 0);
+    });
+}
+
+function shootGun() {
+    if (!hasShotgun || shotgunAmmo <= 0) return;
+    shotgunAmmo = 0;
+    document.getElementById('btn-shoot').style.display = 'none';
+    updateHUD();
+
+    if (aiGranny && !isGrannyStunned) {
+        let dist = Phaser.Math.Distance.Between(players[myPlayerId].x, players[myPlayerId].y, aiGranny.x, aiGranny.y);
+        if (dist < 220) {
+            isGrannyStunned = true;
+            alert("Tiro certeiro! A Véia desmaiou por 1 minuto!");
+            setTimeout(() => { isGrannyStunned = false; }, 60000);
+        }
+    }
+}
+
+function updateHUD() {
+    let k = [];
+    if (gameKeys.red) k.push("Vermelha");
+    if (gameKeys.yellow) k.push("Amarela");
+    if (gameKeys.blue) k.push("Azul");
+    if (gameKeys.green) k.push("Verde");
+    if (gameKeys.purple) k.push("Roxa");
+    if (gameKeys.orange) k.push("Laranja");
+    if (gameKeys.pink) k.push("Rosa");
+    if (gameKeys.cyan) k.push("Ciano");
+    if (gameKeys.white) k.push("Branca");
+    document.getElementById('keys-list').innerText = k.length > 0 ? k.join(", ") : "Nenhuma";
+    
+    let parts = Object.values(carParts).filter(v => v).length;
+    document.getElementById('car-parts').innerText = parts + "/21";
+    document.getElementById('gun-status').innerText = hasShotgun ? (shotgunAmmo > 0 ? "Pronta (1 Tiro)" : "Vazia") : "Não";
+
+    let itens = [];
+    if (hasClock) itens.push("Relógio");
+    if (hasVisionPro) itens.push("Vision Pro");
+    if (visionActive) itens.push("Vision ATIVO");
+    if (clockPlaced) itens.push(clockBeeping ? "Relógio APITANDO" : "Relógio colocado");
+    document.getElementById('items-list').innerText = itens.length > 0 ? itens.join(", ") : "Nenhum";
+}
+
+function updateGrannyAI() {
+    if (!aiGranny || isGrannyStunned || !players[myPlayerId]) return;
+
+    let p = players[myPlayerId];
+    let dist = Phaser.Math.Distance.Between(p.x, p.y, aiGranny.x, aiGranny.y);
+
+    let moved = Phaser.Math.Distance.Between(aiGranny.x, aiGranny.y, lastGrannyPos.x, lastGrannyPos.y);
+    if (moved < 1.2) grannyStuckTimer++;
+    else grannyStuckTimer = 0;
+    lastGrannyPos = {x: aiGranny.x, y: aiGranny.y};
+
+    const chaseSpeed = 82;
+    const patrolSpeed = 65;
+    const avoidSpeed = 100;
+
+    // Alvo: se relógio está apitando, vai atrás do relógio
+    let targetX = p.x, targetY = p.y;
+    if (clockBeeping && clockPos) {
+        targetX = clockPos.x;
+        targetY = clockPos.y;
+        grannyTargetOverride = true;
+    } else {
+        grannyTargetOverride = false;
+        // Predição de drible
+        if (p.body && (Math.abs(p.body.velocity.x) > 10 || Math.abs(p.body.velocity.y) > 10)) {
+            targetX = p.x + p.body.velocity.x * 0.4;
+            targetY = p.y + p.body.velocity.y * 0.4;
+        }
+    }
+
+    // Desvio inteligente de parede (tenta 3 direções)
+    if (grannyStuckTimer > 15) {
+        grannyAvoidDir *= -1;
+        let baseAngle = Phaser.Math.Angle.Between(aiGranny.x, aiGranny.y, targetX, targetY);
+        // Tenta desviar em ângulos diferentes
+        let offsets = [1.3, -1.3, 2.0, -2.0];
+        let chosen = offsets[Math.floor(Math.random() * offsets.length)];
+        aiGranny.setVelocity(
+            Math.cos(baseAngle + chosen) * avoidSpeed,
+            Math.sin(baseAngle + chosen) * avoidSpeed
+        );
+        grannyStuckTimer = 0;
+        return;
+    }
+
+    let distToTarget = Phaser.Math.Distance.Between(aiGranny.x, aiGranny.y, targetX, targetY);
+
+    if (grannyTargetOverride || dist < 480) {
+        grannyState = 'chase';
+        let angle = Phaser.Math.Angle.Between(aiGranny.x, aiGranny.y, targetX, targetY);
+        angle += (Math.random() - 0.5) * 0.12;
+        aiGranny.setVelocity(Math.cos(angle) * chaseSpeed, Math.sin(angle) * chaseSpeed);
+    } else {
+        grannyState = 'patrol';
+        let target = patrolPoints[currentPatrolIndex];
+        let d = Phaser.Math.Distance.Between(aiGranny.x, aiGranny.y, target.x, target.y);
+        if (d < 55) currentPatrolIndex = (currentPatrolIndex + 1) % patrolPoints.length;
+        else scene.physics.moveTo(aiGranny, target.x, target.y, patrolSpeed);
+        if (grannyStuckTimer > 40) {
+            currentPatrolIndex = (currentPatrolIndex + 1) % patrolPoints.length;
+            grannyStuckTimer = 0;
+        }
+    }
+
+    // Captura (só se não estiver distraída pelo relógio)
+    if (!grannyTargetOverride && dist < 26) {
+        p.setPosition(80, 80);
+    }
+
+    // Avó usa as escadas do porão (entra e sai)
+    if (stairsToBasement && aiGranny.y > 480 && aiGranny.y < 750 && Math.abs(aiGranny.x - 850) < 50) {
+        // Chance de descer pro porão
+        if (Math.random() < 0.02 && aiGranny.y < 800) {
+            aiGranny.setPosition(850, 950);
+        }
+    }
+    if (stairsToGarage && aiGranny.y > 850 && aiGranny.y < 1000 && Math.abs(aiGranny.x - 850) < 50) {
+        if (Math.random() < 0.02) {
+            aiGranny.setPosition(850, 650);
+        }
+    }
+}
+
+function update() {
+    if (isPaused) return;
+    let p = players[myPlayerId];
+    if (!p) return;
+
+    let speed = 145;
+    p.setVelocity(0);
+
+    let moveX = 0;
+    let moveY = 0;
+
+    // Teclado
+    if (cursors.left.isDown || (wasd.A && wasd.A.isDown)) moveX = -1;
+    else if (cursors.right.isDown || (wasd.D && wasd.D.isDown)) moveX = 1;
+    if (cursors.up.isDown || (wasd.W && wasd.W.isDown)) moveY = -1;
+    else if (cursors.down.isDown || (wasd.S && wasd.S.isDown)) moveY = 1;
+
+    // Touch / Analógico
+    if (touchInput.x !== 0 || touchInput.y !== 0) {
+        moveX = touchInput.x;
+        moveY = touchInput.y;
+    }
+
+    if (moveX !== 0 || moveY !== 0) {
+        p.setVelocityX(moveX * speed);
+        p.setVelocityY(moveY * speed);
+        sendNetPosition();
+    }
+
+    // Atualiza posição do nome
+    if (p.nameText) p.nameText.setPosition(p.x, p.y - 22);
+
+    // ===== Timers dos itens =====
+    // Relógio
+    if (clockPlaced) {
+        clockTimer++;
+        if (!clockBeeping && clockTimer > 300) { // 5 segundos
+            clockBeeping = true;
+            clockTimer = 0;
+        }
+        if (clockBeeping && clockTimer > 600) { // 10 segundos apitando
+            clockPlaced = false;
+            clockBeeping = false;
+            clockPos = null;
+            clockTimer = 0;
+        }
+    }
+
+    // Vision Pro
+    if (visionActive) {
+        visionTimer--;
+        if (visionTimer <= 0) {
+            visionActive = false;
+            if (p) {
+                p.setAlpha(1);
+                p.body.checkCollision.none = false;
+            }
+        }
+    }
+
+    updateGrannyAI();
+    updateHUD();
+}
+
+function setupMobileControls() {
+    const bindBtn = (id, x, y) => {
+        const el = document.getElementById(id);
+        const start = (e) => { e.preventDefault(); touchInput.x = x; touchInput.y = y; };
+        const end = (e) => { e.preventDefault(); touchInput.x = 0; touchInput.y = 0; };
+        el.addEventListener('touchstart', start); el.addEventListener('touchend', end);
+        el.addEventListener('mousedown', start); el.addEventListener('mouseup', end);
+        el.addEventListener('mouseleave', end);
+    };
+    bindBtn('btn-left', -1, 0);
+    bindBtn('btn-right', 1, 0);
+    bindBtn('btn-up', 0, -1);
+    bindBtn('btn-down', 0, 1);
+
+    // Analógico virtual
+    const zone = document.getElementById('analog-zone');
+    const stick = document.getElementById('analog-stick');
+    const base = document.getElementById('analog-base');
+    let dragging = false;
+
+    function handleAnalog(e) {
+        e.preventDefault();
+        const rect = base.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let dx = clientX - cx;
+        let dy = clientY - cy;
+        const max = 35;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+        stick.style.left = (35 + dx) + 'px';
+        stick.style.top = (35 + dy) + 'px';
+        touchInput.x = dx / max;
+        touchInput.y = dy / max;
+    }
+
+    function endAnalog(e) {
+        e.preventDefault();
+        dragging = false;
+        stick.style.left = '35px';
+        stick.style.top = '35px';
+        touchInput = { x: 0, y: 0 };
+    }
+
+    base.addEventListener('touchstart', (e) => { dragging = true; handleAnalog(e); });
+    base.addEventListener('touchmove', (e) => { if (dragging) handleAnalog(e); });
+    base.addEventListener('touchend', endAnalog);
+    base.addEventListener('mousedown', (e) => { dragging = true; handleAnalog(e); });
+    window.addEventListener('mousemove', (e) => { if (dragging) handleAnalog(e); });
+    window.addEventListener('mouseup', endAnalog);
+}
+</script>
+</body>
+</html>
